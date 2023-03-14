@@ -1,45 +1,50 @@
-from flask import Flask, request
-from pymessenger.bot import Bot
+
+from flask import Flask, request, Response
+from viberbot import Api
+from viberbot.api.bot_configuration import BotConfiguration
+from viberbot.api.messages import VideoMessage
+from viberbot.api.messages.text_message import TextMessage
+import logging
+
+from viberbot.api.viber_requests import ViberConversationStartedRequest
+from viberbot.api.viber_requests import ViberFailedRequest
+from viberbot.api.viber_requests import ViberMessageRequest
+from viberbot.api.viber_requests import ViberSubscribedRequest
+from viberbot.api.viber_requests import ViberUnsubscribedRequest
 
 app = Flask(__name__)
+# сюда нужно вставить инфу со своего бота
+viber = Api(BotConfiguration(
+    name='SilveryTestChatBot',
+    avatar='',
+    auth_token='50b635edd927df67-9384e0059f881feb-402a0ff009596b3'
+))
 
-# Введите данные для подключения к Facebook API
-ACCESS_TOKEN = 'EAAhyecWdfRQBAN6OeulEgBwAZB59MpbhudoDQasnoZCk3txwyamvv8mMcuDnDDH8yOqCSL78pD29LHis15jUuet2Cc0y0dm4eup5ALmJZA7ZAtZBs2nZBrHkNiB7RNzeWQLEBS9GzXfICqENvaYheArWDGMKDYy7ggnl6MZCLswewc9oXhAlTMG'
-# VERIFY_TOKEN = 'MDAhyecWdfRQBAN6OeulEgBwAZB59MpbhudoDQasnoZCk3txwyamvv8mMcuDnDDH8yOqCSL78pD29LHis15jUuet2Cc0y0dm4eup5ALmJZA7ZAtZBs2nZBrHkNiB7RNzeWQLEBS9GzXfICqENvaYheArWDGMKDYy7ggnl6MZCLswewc9oXhAlTMG'
-VERIFY_TOKEN = '7A12801B674BA3DAEDB27E00B5D268EF6656FA3A19355E6CCCBC75E43D31A40E'
 
-bot = Bot(ACCESS_TOKEN)
+@app.route('/', methods=['POST'])
+def incoming():
+    # every viber message is signed, you can verify the signature using this method
+    if not viber.verify_signature(request.get_data(), request.headers.get('X-Viber-Content-Signature')):
+        return Response(status=403)
 
-# Функция для создания кнопок
-def create_button(title, payload):
-    return {
-        "type": "postback",
-        "title": title,
-        "payload": payload
-    }
+    # this library supplies a simple way to receive a request object
+    viber_request = viber.parse_request(request.get_data())
 
-# Функция для отправки сообщения с кнопками
-def send_message(recipient_id, message, buttons=None):
-    button_list = None
-    if buttons:
-        button_list = [create_button(title, payload) for title, payload in buttons.items()]
-    bot.send_button_message(recipient_id, message, button_list)
+    if isinstance(viber_request, ViberMessageRequest):
+        message = viber_request.message
+        # lets echo back
+        viber.send_messages(viber_request.sender.id, [
+            message
+        ])
+    elif isinstance(viber_request, ViberSubscribedRequest):
+        viber.send_messages(viber_request.get_user.id, [
+            TextMessage(text="thanks for subscribing!")
+        ])
+    elif isinstance(viber_request, ViberFailedRequest):
+        TextMessage(text="t!")
 
-# Обработчик входящих сообщений
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.get_json()
-    if data['object'] == 'page':
-        for entry in data['entry']:
-            for messaging_event in entry['messaging']:
-                if messaging_event.get('message'):
-                    sender_id = messaging_event['sender']['id']
-                    message_text = messaging_event['message']['text']
-                    send_message(sender_id, 'Вы написали: {}'.format(message_text), buttons={
-                        'Кнопка 1': 'payload_1',
-                        'Кнопка 2': 'payload_2'
-                    })
-    return "ok"
+    return Response(status=200)
 
-if __name__ == '__main__':
-    app.run(debug=True)
+
+if __name__ == "__main__":
+    app.run(port=8087)
